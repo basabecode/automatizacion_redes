@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Proyecto (somostecnicos, corteurbano, odontologia, etc.) ───
+model Project {
+  id          String   @id @default(cuid())
+  slug        String   @unique  // "somostecnicos", "corteurbano"
+  name        String            // "SomosTécnicos", "Corte Urbano"
+  description String?
+  industry    String?           // "tecnología", "barbería", "salud"
+  logoUrl     String?
+  brandColor  String?           // "#e40014"
+  tone        String   @default("cercano y casual")
+  audience    String?           // "emprendedores 25-40 años"
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  posts          Post[]
+  socialAccounts SocialAccount[]
+
+  @@map("projects")
+}
+
+// ─── Cuenta de red social vinculada a un proyecto ───
+model SocialAccount {
+  id           String   @id @default(cuid())
+  projectId    String
+  network      Network
+  accountId    String            // ID en la plataforma
+  accountName  String
+  accessToken  String            // Encriptado en prod — aquí en texto para uso local
+  refreshToken String?
+  expiresAt    DateTime?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  posts   Post[]
+
+  @@unique([projectId, network])
+  @@map("social_accounts")
+}
+
+// ─── Post generado ───
+model Post {
+  id            String     @id @default(cuid())
+  projectId     String
+  title         String
+  description   String
+  hashtags      String[]
+  cta           String
+  imageUrl      String?           // URL devuelta por fal.ai
+  videoUrl      String?           // URL devuelta por fal.ai Kling
+  imagePrompt   String?           // Prompt usado para generar la imagen
+  contentType   ContentType
+  network       Network
+  status        PostStatus @default(DRAFT)
+  publishedAt   DateTime?
+  publishedUrl  String?           // URL del post publicado
+  errorMessage  String?
+  topic         String            // Tema ingresado por el usuario
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id])
+  socialAccountId String?
+  publishLogs   PublishLog[]
+
+  @@map("posts")
+}
+
+// ─── Log de cada intento de publicación ───
+model PublishLog {
+  id         String    @id @default(cuid())
+  postId     String
+  attempt    Int       @default(1)
+  success    Boolean
+  response   Json?             // Respuesta completa de la API
+  error      String?
+  createdAt  DateTime  @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("publish_logs")
+}
+
+// ─── Enums ───
+enum Network {
+  FACEBOOK
+  INSTAGRAM
+  TIKTOK
+}
+
+enum ContentType {
+  IMAGE
+  VIDEO
+  CAROUSEL
+  STORY
+}
+
+enum PostStatus {
+  DRAFT
+  GENERATING
+  READY
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
