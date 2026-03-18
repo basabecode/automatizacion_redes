@@ -4,13 +4,16 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat openssl
 
-COPY package*.json ./
-RUN npm install
+# Instalar pnpm globalmente
+RUN npm install -g pnpm
+
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN npx prisma generate
+RUN pnpm exec prisma generate
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run dev"]
+CMD ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm dev"]

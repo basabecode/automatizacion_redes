@@ -10,43 +10,84 @@ export async function publishToFacebook(params: {
   accessToken: string
   pageId: string
   message: string
+  contentType?: string
   imageUrl?: string
+  videoUrl?: string
+  mediaUrls?: string[]
 }): Promise<PublishResult> {
   try {
-    const { accessToken, pageId, message, imageUrl } = params
+    const { accessToken, pageId, message, contentType, imageUrl, videoUrl, mediaUrls } = params
+    const base = `https://graph.facebook.com/v21.0/${pageId}`
 
-    if (imageUrl) {
-      // Post con imagen
-      const res = await fetch(
-        `https://graph.facebook.com/v21.0/${pageId}/photos`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: imageUrl,
-            caption: message,
-            access_token: accessToken,
-          }),
-        }
-      )
-      const data = await res.json()
-      if (data.error) throw new Error(data.error.message)
-      return {
-        success: true,
-        postId: data.id,
-        postUrl: `https://facebook.com/${data.id}`,
-      }
-    }
-
-    // Post solo texto
-    const res = await fetch(
-      `https://graph.facebook.com/v21.0/${pageId}/feed`,
-      {
+    // VIDEO
+    if (contentType === 'VIDEO' && videoUrl) {
+      const res = await fetch(`${base}/videos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, access_token: accessToken }),
+        body: JSON.stringify({ file_url: videoUrl, description: message, access_token: accessToken }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error.message)
+      return { success: true, postId: data.id, postUrl: `https://facebook.com/${data.id}` }
+    }
+
+    // STORY
+    if (contentType === 'STORY' && imageUrl) {
+      const res = await fetch(`${base}/photo_stories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: imageUrl, access_token: accessToken }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error.message)
+      return { success: true, postId: data.id }
+    }
+
+    // CAROUSEL (álbum multi-foto)
+    if (contentType === 'CAROUSEL' && mediaUrls && mediaUrls.length > 1) {
+      const photoIds: string[] = []
+      for (const url of mediaUrls) {
+        const photoRes = await fetch(`${base}/photos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, published: false, access_token: accessToken }),
+        })
+        const photo = await photoRes.json()
+        if (photo.error) throw new Error(photo.error.message)
+        photoIds.push(photo.id)
       }
-    )
+      const feedRes = await fetch(`${base}/feed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          attached_media: photoIds.map(id => ({ media_fbid: id })),
+          access_token: accessToken,
+        }),
+      })
+      const feed = await feedRes.json()
+      if (feed.error) throw new Error(feed.error.message)
+      return { success: true, postId: feed.id, postUrl: `https://facebook.com/${feed.id}` }
+    }
+
+    // IMAGE
+    if (imageUrl) {
+      const res = await fetch(`${base}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: imageUrl, caption: message, access_token: accessToken }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error.message)
+      return { success: true, postId: data.id, postUrl: `https://facebook.com/${data.id}` }
+    }
+
+    // Solo texto
+    const res = await fetch(`${base}/feed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, access_token: accessToken }),
+    })
     const data = await res.json()
     if (data.error) throw new Error(data.error.message)
     return { success: true, postId: data.id }
@@ -60,40 +101,84 @@ export async function publishToInstagram(params: {
   accessToken: string
   igAccountId: string
   caption: string
+  contentType?: string
   imageUrl?: string
+  mediaUrls?: string[]
   videoUrl?: string
 }): Promise<PublishResult> {
   try {
-    const { accessToken, igAccountId, caption, imageUrl, videoUrl } = params
+    const { accessToken, igAccountId, caption, contentType, imageUrl, mediaUrls, videoUrl } = params
     const base = `https://graph.facebook.com/v21.0/${igAccountId}`
 
-    // Paso 1: crear container
-    const mediaBody: Record<string, string> = { caption, access_token: accessToken }
-    if (videoUrl) {
-      mediaBody.media_type = 'REELS'
-      mediaBody.video_url = videoUrl
-    } else if (imageUrl) {
-      mediaBody.image_url = imageUrl
+    let creationId: string
+
+    if (mediaUrls && mediaUrls.length > 1) {
+      // CAROUSEL: crear container por cada slide
+      const childIds: string[] = []
+      for (const url of mediaUrls) {
+        const itemRes = await fetch(`${base}/media`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: url, is_carousel_item: true, access_token: accessToken }),
+        })
+        const item = await itemRes.json()
+        if (item.error) throw new Error(item.error.message)
+        childIds.push(item.id)
+      }
+      const carouselRes = await fetch(`${base}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ media_type: 'CAROUSEL', children: childIds.join(','), caption, access_token: accessToken }),
+      })
+      const carousel = await carouselRes.json()
+      if (carousel.error) throw new Error(carousel.error.message)
+      creationId = carousel.id
+
+    } else if (contentType === 'STORY') {
+      // STORY
+      const mediaBody: Record<string, string> = { media_type: 'STORIES', access_token: accessToken }
+      if (videoUrl) {
+        mediaBody.video_url = videoUrl
+      } else if (imageUrl) {
+        mediaBody.image_url = imageUrl
+      } else {
+        throw new Error('Se requiere imageUrl o videoUrl para Instagram Story')
+      }
+      const containerRes = await fetch(`${base}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mediaBody),
+      })
+      const container = await containerRes.json()
+      if (container.error) throw new Error(container.error.message)
+      creationId = container.id
+
     } else {
-      throw new Error('Se requiere imageUrl o videoUrl para Instagram')
+      // IMAGE o VIDEO (REELS)
+      const mediaBody: Record<string, string> = { caption, access_token: accessToken }
+      if (videoUrl) {
+        mediaBody.media_type = 'REELS'
+        mediaBody.video_url = videoUrl
+      } else if (imageUrl) {
+        mediaBody.image_url = imageUrl
+      } else {
+        throw new Error('Se requiere imageUrl, videoUrl o mediaUrls para Instagram')
+      }
+      const containerRes = await fetch(`${base}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mediaBody),
+      })
+      const container = await containerRes.json()
+      if (container.error) throw new Error(container.error.message)
+      creationId = container.id
     }
 
-    const containerRes = await fetch(`${base}/media`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(mediaBody),
-    })
-    const container = await containerRes.json()
-    if (container.error) throw new Error(container.error.message)
-
-    // Paso 2: publicar container
+    // Publicar container
     const publishRes = await fetch(`${base}/media_publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        creation_id: container.id,
-        access_token: accessToken,
-      }),
+      body: JSON.stringify({ creation_id: creationId, access_token: accessToken }),
     })
     const published = await publishRes.json()
     if (published.error) throw new Error(published.error.message)

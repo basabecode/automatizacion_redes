@@ -22,8 +22,9 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  posts          Post[]
-  socialAccounts SocialAccount[]
+  posts           Post[]
+  socialAccounts  SocialAccount[]
+  calendarEntries CalendarEntry[]
 
   @@map("projects")
 }
@@ -56,7 +57,8 @@ model Post {
   description   String
   hashtags      String[]
   cta           String
-  imageUrl      String?           // URL devuelta por fal.ai
+  imageUrl      String?           // URL devuelta por fal.ai (singular)
+  mediaUrls     String[]          // URLs múltiples para CAROUSEL
   videoUrl      String?           // URL devuelta por fal.ai Kling
   imagePrompt   String?           // Prompt usado para generar la imagen
   contentType   ContentType
@@ -65,6 +67,8 @@ model Post {
   publishedAt   DateTime?
   publishedUrl  String?           // URL del post publicado
   errorMessage  String?
+  calendarEntryId String?
+  calendarEntry   CalendarEntry? @relation(fields: [calendarEntryId], references: [id])
   topic         String            // Tema ingresado por el usuario
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -92,6 +96,26 @@ model PublishLog {
   @@map("publish_logs")
 }
 
+// ─── Entrada de calendario ───
+model CalendarEntry {
+  id          String         @id @default(cuid())
+  projectId   String
+  date        DateTime       // día programado (00:00:00 UTC)
+  topic       String         // título / tema del contenido
+  notes       String?        // contexto adicional opcional
+  networks    Network[]      // redes objetivo
+  contentType ContentType    @default(IMAGE)
+  status      CalendarStatus @default(PENDING)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  posts   Post[]
+
+  @@unique([projectId, date])
+  @@map("calendar_entries")
+}
+
 // ─── Enums ───
 enum Network {
   FACEBOOK
@@ -113,4 +137,13 @@ enum PostStatus {
   PUBLISHING
   PUBLISHED
   FAILED
+}
+
+enum CalendarStatus {
+  PENDING
+  GENERATING
+  READY
+  APPROVED
+  PUBLISHED
+  NEEDS_EDIT
 }

@@ -13,7 +13,6 @@ export async function generateVideo(
         prompt,
         image_url: imageUrl,
         duration: '5',
-        aspect_ratio: '9:16',
       },
     }) as { data: { video: { url: string } } }
 
