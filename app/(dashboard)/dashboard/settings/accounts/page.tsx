@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   Facebook, Instagram, Video, Plus, Trash2, ShieldCheck,
-  ChevronDown, ChevronUp, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle
+  ChevronUp, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle
 } from 'lucide-react'
 
 interface Project { id: string; name: string; slug: string; brandColor: string | null }

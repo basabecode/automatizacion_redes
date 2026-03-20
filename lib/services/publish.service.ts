@@ -174,6 +174,9 @@ export async function publishToInstagram(params: {
       creationId = container.id
     }
 
+    // Esperar a que Instagram procese el container (requiere status FINISHED)
+    await waitForIgContainer(creationId, accessToken)
+
     // Publicar container
     const publishRes = await fetch(`${base}/media_publish`, {
       method: 'POST',
@@ -191,6 +194,35 @@ export async function publishToInstagram(params: {
   } catch (err) {
     return { success: false, error: (err as Error).message }
   }
+}
+
+/**
+ * Espera a que un media container de Instagram esté listo para publicar.
+ * Instagram procesa las imágenes/videos de forma asíncrona antes de permitir media_publish.
+ * Sondea cada 3s con un máximo de 10 intentos (30s total).
+ */
+async function waitForIgContainer(creationId: string, accessToken: string): Promise<void> {
+  const maxAttempts = 10
+  const delayMs     = 3000
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise(r => setTimeout(r, delayMs))
+
+    const res  = await fetch(
+      `https://graph.facebook.com/v21.0/${creationId}?fields=status_code,status&access_token=${accessToken}`
+    )
+    const data = await res.json() as { status_code?: string; status?: string; error?: { message: string } }
+
+    if (data.error) throw new Error(data.error.message)
+
+    if (data.status_code === 'FINISHED') return
+    if (data.status_code === 'ERROR' || data.status_code === 'EXPIRED') {
+      throw new Error(`Instagram rechazó el media container: ${data.status ?? data.status_code}`)
+    }
+    // IN_PROGRESS o PUBLISHED_BY_MEDIA_ID → seguir esperando
+  }
+
+  throw new Error('Tiempo de espera agotado — Instagram no terminó de procesar el media container (30s)')
 }
 
 // ─── TIKTOK ─────────────────────────────────────────────────

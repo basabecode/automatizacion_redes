@@ -98,6 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
 
     const posts = results
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
       .map(r => r.value)
 

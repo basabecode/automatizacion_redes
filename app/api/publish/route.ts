@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth.options'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { deriveCalendarStatus } from '@/lib/admin-workflow'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { decrypt } from '@/lib/encrypt'
 import {
   publishToFacebook,
@@ -15,6 +16,14 @@ const schema = z.object({ postId: z.string() })
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+
+  const rlKey = `publish:${session.user?.email ?? 'unknown'}`
+  if (!checkRateLimit(rlKey, 20, 60 * 60 * 1000)) {
+    return NextResponse.json(
+      { success: false, error: 'Límite de publicaciones alcanzado. Intenta nuevamente en una hora.' },
+      { status: 429 }
+    )
+  }
 
   let postId: string | undefined
   try {

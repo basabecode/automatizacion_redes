@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
+import Image from 'next/image'
 import {
   LayoutDashboard, FileText, Settings,
   Zap, LogOut, Users, ChevronRight, Menu, X, CalendarDays,
@@ -167,11 +168,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         className="px-5 py-4 flex items-center gap-3"
         style={{ borderBottom: '1px solid var(--border)' }}
       >
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: 'var(--accent)', boxShadow: '0 2px 8px rgba(0,184,144,0.30)' }}
-        >
-          <Zap className="w-[15px] h-[15px]" style={{ color: '#fff' }} />
+        <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}>
+          <Image
+            src="/logo/logo-sidebar.png"
+            alt="Yetzar logo"
+            width={32}
+            height={32}
+            className="w-full h-full object-cover"
+            priority
+          />
         </div>
         <div className="flex-1 min-w-0">
           <p
@@ -319,11 +324,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
-            <div
-              className="w-6 h-6 rounded-md flex items-center justify-center"
-              style={{ background: 'var(--accent)' }}
-            >
-              <Zap className="w-3 h-3" style={{ color: '#fff' }} />
+            <div className="w-6 h-6 rounded-md overflow-hidden flex-shrink-0">
+              <Image
+                src="/logo/logo-mobile.png"
+                alt="Yetzar logo"
+                width={24}
+                height={24}
+                className="w-full h-full object-cover"
+                priority
+              />
             </div>
             <span
               className="font-bold text-sm"

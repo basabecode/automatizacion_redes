@@ -1,6 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+import { anthropic } from '@/lib/anthropic-client'
 
 export interface GeneratedContent {
   network: string
@@ -19,12 +17,13 @@ interface GenerateParams {
   tone: string
   audience: string
   networks: string[]
+  styleContext?: string
 }
 
 export async function generateSocialContent(
   params: GenerateParams
 ): Promise<GeneratedContent[]> {
-  const { topic, projectName, industry, tone, audience, networks } = params
+  const { topic, projectName, industry, tone, audience, networks, styleContext } = params
 
   const prompt = `Eres un experto en marketing de contenidos para redes sociales.
 Genera contenido para: ${networks.join(', ')}.
@@ -33,7 +32,7 @@ Proyecto: ${projectName}
 Industria: ${industry}
 Tema/Producto: ${topic}
 Tono: ${tone}
-Audiencia: ${audience}
+Audiencia: ${audience}${styleContext ? `\nEstilo visual de referencia: ${styleContext}` : ''}
 
 Para CADA red social genera un objeto con estos campos exactos:
 - network: nombre de la red (FACEBOOK, INSTAGRAM o TIKTOK)
@@ -52,7 +51,7 @@ Para CADA red social genera un objeto con estos campos exactos:
 
 Responde SOLO con un array JSON válido. Sin texto adicional, sin backticks, sin explicaciones.`
 
-  const message = await client.messages.create({
+  const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
     max_tokens: 2000,
     messages: [{ role: 'user', content: prompt }],

@@ -571,9 +571,9 @@ export default function ProjectDetailPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3" style={{ background: 'var(--bg)' }}>
         <p className="font-semibold" style={{ color: 'var(--text)' }}>Proyecto no encontrado</p>
-        <a href="/dashboard/projects" className="text-sm" style={{ color: 'var(--accent)' }}>
+        <Link href="/dashboard/projects" className="text-sm" style={{ color: 'var(--accent)' }}>
           ← Volver a proyectos
-        </a>
+        </Link>
       </div>
     )
   }

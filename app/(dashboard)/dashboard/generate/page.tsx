@@ -1,12 +1,8 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle,
   CheckCircle,
-  ChevronRight,
   Facebook,
   ImageIcon,
   Instagram,
@@ -14,13 +10,16 @@ import {
   Loader2,
   Send,
   Sparkles,
+  Upload,
   Video,
   Wand2,
+  X,
   XCircle,
 } from 'lucide-react'
 import { publishPostById } from '@/lib/admin-api-client'
 import { CONTENT_TYPE_OPTIONS, getNetworkColor, getNetworkLabel } from '@/lib/admin-ui'
 import type { AdminNetwork } from '@/lib/admin-ui'
+import { ALLOWED_IMAGE_MEDIA_TYPES } from '@/lib/media-types'
 
 interface Project {
   id: string
@@ -44,6 +43,11 @@ interface Post {
   tip?: string
 }
 
+interface ReferenceImage {
+  dataUrl: string
+  mediaType: string
+}
+
 const NETWORKS = [
   { id: 'FACEBOOK' as const, label: getNetworkLabel('FACEBOOK'), icon: Facebook },
   { id: 'INSTAGRAM' as const, label: getNetworkLabel('INSTAGRAM'), icon: Instagram },
@@ -57,6 +61,15 @@ const CONTENT_ICONS = {
   STORY: Wand2,
 } as const
 
+const STYLE_PRESETS = [
+  { id: 'photo', label: 'Fotográfico', hint: 'realistic photographic style, high definition, professional photography' },
+  { id: 'editorial', label: 'Editorial', hint: 'clean editorial magazine style, elegant and refined' },
+  { id: 'cinematic', label: 'Cinemático', hint: 'cinematic style, dramatic lighting, rich saturated colors, film-like' },
+  { id: 'illustration', label: 'Ilustración', hint: 'digital illustration, vibrant flat colors, modern vector design' },
+  { id: 'minimal', label: 'Minimalista', hint: 'minimalist, clean white background, product-focused, studio lighting' },
+  { id: '3d', label: '3D / CGI', hint: 'high quality 3D render, photorealistic CGI, studio quality' },
+]
+
 function toggleValue(values: string[], next: string) {
   return values.includes(next) ? values.filter(value => value !== next) : [...values, next]
 }
@@ -66,14 +79,16 @@ function hashtagText(tags: string[]) {
 }
 
 function GenerateContent() {
-  const searchParams = useSearchParams()
-  const preselectedId = searchParams.get('projectId') ?? ''
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   const [projects, setProjects] = useState<Project[]>([])
-  const [projectId, setProjectId] = useState(preselectedId)
+  const [projectId, setProjectId] = useState('')
   const [topic, setTopic] = useState('')
-  const [networks, setNetworks] = useState<string[]>(['FACEBOOK', 'INSTAGRAM', 'TIKTOK'])
+  const [networks, setNetworks] = useState<string[]>(['FACEBOOK', 'INSTAGRAM'])
   const [contentTypes, setContentTypes] = useState<string[]>(['IMAGE'])
+  const [referenceImage, setReferenceImage] = useState<ReferenceImage | null>(null)
+  const [stylePreset, setStylePreset] = useState<string>('')
   const [generating, setGenerating] = useState(false)
   const [posts, setPosts] = useState<Post[]>([])
   const [publishing, setPublishing] = useState<Record<string, boolean>>({})
@@ -82,15 +97,50 @@ function GenerateContent() {
   const [warnings, setWarnings] = useState<string[]>([])
 
   useEffect(() => {
-    fetch('/api/projects').then(response => response.json()).then(setProjects)
+    fetch('/api/projects').then(r => r.json()).then(setProjects)
   }, [])
 
   const selectedProject = useMemo(
-    () => projects.find(project => project.id === projectId),
+    () => projects.find(p => p.id === projectId),
     [projectId, projects]
   )
 
   const canGenerate = Boolean(projectId && topic.trim() && networks.length > 0 && contentTypes.length > 0)
+
+  const processFile = useCallback((file: File) => {
+    if (!ALLOWED_IMAGE_MEDIA_TYPES.includes(file.type as typeof ALLOWED_IMAGE_MEDIA_TYPES[number])) return
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setReferenceImage({
+        dataUrl: e.target?.result as string,
+        mediaType: file.type,
+      })
+    }
+    reader.readAsDataURL(file)
+  }, [])
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+    e.target.value = ''
+  }, [processFile])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) processFile(file)
+  }, [processFile])
 
   async function handleGenerate() {
     if (!canGenerate) return
@@ -102,10 +152,20 @@ function GenerateContent() {
     setWarnings([])
 
     try {
+      const body: Record<string, unknown> = { projectId, topic, networks, contentTypes }
+      if (referenceImage) {
+        body.referenceImageBase64 = referenceImage.dataUrl.split(',')[1]
+        body.referenceImageMediaType = referenceImage.mediaType
+      }
+      if (stylePreset) {
+        const preset = STYLE_PRESETS.find(p => p.id === stylePreset)
+        if (preset) body.styleHint = preset.hint
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, topic, networks, contentTypes }),
+        body: JSON.stringify(body),
       })
       const data = await response.json()
 
@@ -123,250 +183,296 @@ function GenerateContent() {
   }
 
   async function handlePublish(postId: string) {
-    setPublishing(current => ({ ...current, [postId]: true }))
-
+    setPublishing(c => ({ ...c, [postId]: true }))
     try {
       const { ok, data } = await publishPostById(postId)
       if (ok) {
-        setPublished(current => ({ ...current, [postId]: true }))
+        setPublished(c => ({ ...c, [postId]: true }))
       } else {
-        setErrors(current => ({ ...current, [postId]: String(data.error ?? 'Error al publicar') }))
+        setErrors(c => ({ ...c, [postId]: String(data.error ?? 'Error al publicar') }))
       }
     } catch {
-      setErrors(current => ({ ...current, [postId]: 'Error al publicar' }))
+      setErrors(c => ({ ...c, [postId]: 'Error al publicar' }))
     } finally {
-      setPublishing(current => ({ ...current, [postId]: false }))
+      setPublishing(c => ({ ...c, [postId]: false }))
     }
   }
 
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8" style={{ background: 'var(--bg)' }}>
-      <div className="mx-auto max-w-7xl space-y-6">
-        <section
-          className="rounded-[32px] border p-6 sm:p-8"
+      <div className="mx-auto max-w-7xl space-y-5">
+
+        {/* Page header — compact */}
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.22em] mb-1" style={{ color: 'var(--text-faint)' }}>
+            Generador rápido
+          </p>
+          <h1
+            className="font-bold leading-[1.05]"
+            style={{
+              color: 'var(--text)',
+              fontFamily: 'Bricolage Grotesque, sans-serif',
+              letterSpacing: '-0.035em',
+              fontSize: 'clamp(1.5rem, 3vw, 2rem)',
+            }}
+          >
+            Crea y publica sin pasar por calendario.
+          </h1>
+        </div>
+
+        {/* ── HORIZONTAL FORM ──────────────────────────────────────────── */}
+        <div
+          className="rounded-[24px] border p-5"
           style={{
-            background: 'linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(239,248,244,0.96) 48%, rgba(248,244,255,0.88) 100%)',
+            background: 'rgba(255,255,255,0.92)',
             borderColor: 'rgba(12,29,22,0.08)',
-            boxShadow: '0 24px 70px rgba(12,29,22,0.09)',
+            boxShadow: '0 8px 32px rgba(12,29,22,0.06)',
           }}
         >
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_320px]">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.22em] mb-3" style={{ color: 'var(--text-faint)' }}>
-                Flujo rápido
-              </p>
-              <h1
-                className="font-bold leading-[0.95] mb-3"
-                style={{
-                  color: 'var(--text)',
-                  fontFamily: 'Bricolage Grotesque, sans-serif',
-                  letterSpacing: '-0.04em',
-                  fontSize: 'clamp(2rem, 5vw, 3.6rem)',
-                }}
-              >
-                Genera contenido sin pasar por calendario.
-              </h1>
-              <p className="max-w-2xl text-sm sm:text-base leading-7" style={{ color: 'var(--text-muted)' }}>
-                Esta vista es para producción rápida. Selecciona proyecto, redacta un brief corto y genera piezas listas para publicar desde aquí.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-2.5">
-                {[`${networks.length} redes`, `${contentTypes.length} formatos`, `${posts.length} resultados`].map(item => (
-                  <span
-                    key={item}
-                    className="rounded-full px-3 py-1.5 text-xs font-semibold"
-                    style={{ background: 'rgba(255,255,255,0.76)', color: 'var(--text-body)' }}
-                  >
-                    {item}
-                  </span>
+          {/* Row 1: main controls */}
+          <div className="flex flex-wrap gap-4 items-end">
+
+            {/* Proyecto */}
+            <div className="flex-shrink-0 w-44">
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] mb-1.5" style={{ color: 'var(--text-faint)' }}>
+                Proyecto
+              </label>
+              <select value={projectId} onChange={e => setProjectId(e.target.value)} className="input" style={{ paddingTop: '0.5rem', paddingBottom: '0.5rem' }}>
+                <option value="">Seleccionar...</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="rounded-2xl border p-4" style={{ background: 'rgba(255,255,255,0.72)', borderColor: 'rgba(12,29,22,0.08)' }}>
-                <p className="text-[11px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-faint)' }}>Proyecto activo</p>
-                {selectedProject ? (
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl border" style={{ background: selectedProject.brandColor ?? '#d8efe7', borderColor: 'rgba(12,29,22,0.06)' }} />
-                    <div>
-                      <p className="font-semibold" style={{ color: 'var(--text)' }}>{selectedProject.name}</p>
-                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>/{selectedProject.slug}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>Selecciona un proyecto para empezar.</p>
-                )}
-              </div>
-
-              <div className="rounded-2xl border p-4" style={{ background: 'rgba(200,124,0,0.08)', borderColor: 'rgba(200,124,0,0.22)' }}>
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5" style={{ color: 'var(--amber)' }} />
-                  <p className="text-sm leading-6" style={{ color: 'var(--text-body)' }}>
-                    Este flujo omite la aprobación editorial del calendario. Úsalo para campañas urgentes o contenido ad-hoc.
-                  </p>
-                </div>
-                <Link href="/dashboard/projects" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--text)' }}>
-                  Ir a proyectos
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <aside className="rounded-[28px] border p-5 sm:p-6 xl:sticky xl:top-6 xl:self-start" style={{ background: 'rgba(255,255,255,0.88)', borderColor: 'rgba(12,29,22,0.08)', boxShadow: '0 18px 48px rgba(12,29,22,0.07)' }}>
-            <div className="mb-5">
-              <p className="text-[11px] uppercase tracking-[0.18em] mb-1" style={{ color: 'var(--text-faint)' }}>Configuración</p>
-              <h2 className="text-xl font-bold" style={{ color: 'var(--text)' }}>Brief de generación</h2>
-            </div>
-
-            <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-body)' }}>Proyecto</label>
-                <select value={projectId} onChange={event => setProjectId(event.target.value)} className="input">
-                  <option value="">Selecciona un proyecto...</option>
-                  {projects.map(project => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-semibold" style={{ color: 'var(--text-body)' }}>Tema o producto</label>
-                  <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>{topic.trim().length}/220</span>
-                </div>
-                <textarea
-                  value={topic}
-                  onChange={event => setTopic(event.target.value.slice(0, 220))}
-                  rows={5}
-                  className="input resize-none"
-                  placeholder="Ej: Promoción de diagnóstico gratis y soporte remoto para empresas"
-                  style={{ lineHeight: 1.7 }}
-                />
-                <p className="text-xs mt-2" style={{ color: 'var(--text-faint)' }}>
-                  Describe una sola idea central con contexto suficiente para convertirla en copy útil.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-body)' }}>Redes</label>
-                <div className="grid gap-2">
-                  {NETWORKS.map(({ id, label, icon: Icon }) => {
-                    const active = networks.includes(id)
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setNetworks(current => toggleValue(current, id))}
-                        className="rounded-2xl border px-4 py-3 text-left transition-all"
-                        style={active ? {
-                          background: `${getNetworkColor(id)}14`,
-                          borderColor: `${getNetworkColor(id)}55`,
-                          color: getNetworkColor(id),
-                        } : {
-                          background: 'rgba(255,255,255,0.76)',
-                          borderColor: 'rgba(12,29,22,0.08)',
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        <span className="flex items-center gap-3">
-                          <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: active ? `${getNetworkColor(id)}18` : 'rgba(12,29,22,0.05)' }}>
-                            <Icon className="w-4 h-4" />
-                          </span>
-                          <span>
-                            <span className="block text-sm font-semibold">{label}</span>
-                            <span className="block text-[11px]" style={{ color: active ? getNetworkColor(id) : 'var(--text-faint)' }}>
-                              {active ? 'Incluida en esta tanda' : 'No seleccionada'}
-                            </span>
-                          </span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={{ color: 'var(--text-body)' }}>Formatos</label>
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                  {CONTENT_TYPE_OPTIONS.map(({ id, label }) => {
-                    const active = contentTypes.includes(id)
-                    const Icon = CONTENT_ICONS[id]
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setContentTypes(current => toggleValue(current, id))}
-                        className="rounded-2xl border px-4 py-3 text-left transition-all"
-                        style={active ? {
-                          background: 'rgba(12,29,22,0.06)',
-                          borderColor: 'rgba(12,29,22,0.24)',
-                          color: 'var(--text)',
-                        } : {
-                          background: 'rgba(255,255,255,0.76)',
-                          borderColor: 'rgba(12,29,22,0.08)',
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        <span className="flex items-center gap-3">
-                          <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(12,29,22,0.05)' }}>
-                            <Icon className="w-4 h-4" />
-                          </span>
-                          <span className="text-sm font-semibold">{label}</span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {errors.global && (
-                <div className="rounded-2xl border px-4 py-3 text-sm" style={{ background: 'rgba(217,64,64,0.08)', borderColor: 'rgba(217,64,64,0.20)', color: 'var(--text-body)' }}>
-                  <span style={{ color: 'var(--coral)', fontWeight: 700 }}>Error:</span> {errors.global}
+              </select>
+              {selectedProject && (
+                <div className="mt-1 flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: selectedProject.brandColor ?? 'var(--accent)' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>/{selectedProject.slug}</span>
                 </div>
               )}
-
-              <button
-                onClick={handleGenerate}
-                disabled={!canGenerate || generating}
-                className="w-full rounded-2xl px-4 py-3.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: 'var(--text)', color: '#fff' }}
-              >
-                {generating ? <><Loader2 className="w-4 h-4 animate-spin" />Generando contenido...</> : <><Sparkles className="w-4 h-4" />Generar contenido</>}
-              </button>
             </div>
-          </aside>
 
-          <section className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-3">
-              {[
-                ['Redes activas', networks.length],
-                ['Formatos activos', contentTypes.length],
-                ['Resultados generados', posts.length],
-              ].map(([label, value]) => (
-                <div key={String(label)} className="rounded-[24px] border p-4" style={{ background: 'rgba(255,255,255,0.82)', borderColor: 'rgba(12,29,22,0.08)' }}>
-                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-3" style={{ background: 'rgba(0,184,144,0.10)' }}>
-                    <Sparkles className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+            {/* Tema — crece */}
+            <div className="flex-1 min-w-[200px]">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                  Tema o producto
+                </label>
+                <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>{topic.trim().length}/220</span>
+              </div>
+              <textarea
+                value={topic}
+                onChange={e => setTopic(e.target.value.slice(0, 220))}
+                rows={2}
+                className="input resize-none"
+                placeholder="Ej: Promoción de diagnóstico gratis y soporte remoto para empresas"
+                style={{ lineHeight: 1.6 }}
+              />
+            </div>
+
+            {/* Redes — compact pills */}
+            <div className="flex-shrink-0">
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] mb-1.5" style={{ color: 'var(--text-faint)' }}>
+                Redes
+              </label>
+              <div className="flex gap-1.5">
+                {NETWORKS.map(({ id, label, icon: Icon }) => {
+                  const active = networks.includes(id)
+                  const color = getNetworkColor(id)
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setNetworks(c => toggleValue(c, id))}
+                      className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all"
+                      style={active ? {
+                        background: `${color}14`,
+                        borderColor: `${color}55`,
+                        color,
+                      } : {
+                        background: 'rgba(255,255,255,0.7)',
+                        borderColor: 'rgba(12,29,22,0.10)',
+                        color: 'var(--text-faint)',
+                      }}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Formatos — compact pills */}
+            <div className="flex-shrink-0">
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] mb-1.5" style={{ color: 'var(--text-faint)' }}>
+                Formato
+              </label>
+              <div className="flex gap-1.5">
+                {CONTENT_TYPE_OPTIONS.map(({ id, label }) => {
+                  const active = contentTypes.includes(id)
+                  const Icon = CONTENT_ICONS[id]
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setContentTypes(c => toggleValue(c, id))}
+                      className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all"
+                      style={active ? {
+                        background: 'rgba(12,29,22,0.08)',
+                        borderColor: 'rgba(12,29,22,0.28)',
+                        color: 'var(--text)',
+                      } : {
+                        background: 'rgba(255,255,255,0.7)',
+                        borderColor: 'rgba(12,29,22,0.10)',
+                        color: 'var(--text-faint)',
+                      }}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Generar — alineado al fondo */}
+            <button
+              onClick={handleGenerate}
+              disabled={!canGenerate || generating}
+              className="flex-shrink-0 rounded-xl px-5 py-[0.6rem] text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              style={{ background: 'var(--text)', color: '#fff', whiteSpace: 'nowrap' }}
+            >
+              {generating
+                ? <><Loader2 className="w-4 h-4 animate-spin" />Generando...</>
+                : <><Sparkles className="w-4 h-4" />Generar contenido</>
+              }
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="my-4" style={{ borderTop: '1px solid rgba(12,29,22,0.07)' }} />
+
+          {/* Row 2: secondary controls */}
+          <div className="flex flex-wrap items-center gap-4">
+
+            {/* Imagen de referencia — inline compact */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                Referencia visual
+              </span>
+              {referenceImage ? (
+                <div className="flex items-center gap-2">
+                  <div className="relative w-10 h-10 rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(12,29,22,0.10)' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={referenceImage.dataUrl} alt="Referencia" className="w-full h-full object-cover" />
                   </div>
-                  <p className="text-2xl font-bold" style={{ color: 'var(--text)', fontFamily: 'Bricolage Grotesque, sans-serif' }}>{value}</p>
-                  <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{label}</p>
+                  <span className="text-xs" style={{ color: 'var(--accent)' }}>IA analiza estilo</span>
+                  <button
+                    type="button"
+                    onClick={() => setReferenceImage(null)}
+                    className="w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(12,29,22,0.10)', color: 'var(--text-muted)' }}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
-              ))}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all"
+                  style={isDragging ? {
+                    borderColor: 'var(--accent)',
+                    background: 'rgba(0,184,144,0.06)',
+                    color: 'var(--accent)',
+                  } : {
+                    borderStyle: 'dashed',
+                    borderColor: 'rgba(12,29,22,0.20)',
+                    background: 'transparent',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Agregar imagen
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={handleFileChange}
+              />
             </div>
+
+            {/* Separador vertical */}
+            <div className="hidden sm:block w-px h-5" style={{ background: 'rgba(12,29,22,0.10)' }} />
+
+            {/* Estilo visual */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--text-faint)' }}>
+                Estilo
+              </span>
+              {STYLE_PRESETS.map(preset => {
+                const active = stylePreset === preset.id
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setStylePreset(active ? '' : preset.id)}
+                    className="rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all"
+                    style={active ? {
+                      background: 'var(--text)',
+                      color: '#fff',
+                    } : {
+                      background: 'rgba(12,29,22,0.05)',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Error global */}
+            {errors.global && (
+              <div className="ml-auto text-xs font-medium" style={{ color: 'var(--coral)' }}>
+                {errors.global}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── RESULTS AREA ─────────────────────────────── */}
+        <section className="space-y-5">
 
             {posts.length === 0 ? (
-              <div className="rounded-[28px] border p-6 lg:p-7" style={{ background: 'rgba(255,255,255,0.84)', borderColor: 'rgba(12,29,22,0.08)' }}>
-                <p className="text-[11px] uppercase tracking-[0.18em] mb-2" style={{ color: 'var(--text-faint)' }}>Antes de generar</p>
-                <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text)' }}>Define una idea clara y una selección mínima.</h2>
+              <div
+                className="rounded-[28px] border p-6 lg:p-8"
+                style={{ background: 'rgba(255,255,255,0.84)', borderColor: 'rgba(12,29,22,0.08)' }}
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] mb-2" style={{ color: 'var(--text-faint)' }}>
+                  Antes de generar
+                </p>
+                <h2 className="text-lg font-bold mb-4" style={{ color: 'var(--text)' }}>
+                  Define una idea clara y una selección mínima.
+                </h2>
                 <div className="grid gap-3 md:grid-cols-3">
                   {[
-                    'Usa un beneficio concreto, no una descripción genérica.',
-                    'Selecciona solo las redes que realmente vas a publicar.',
-                    'Elige el formato por intención: imagen, carrusel, video o story.',
-                  ].map(text => (
-                    <div key={text} className="rounded-2xl border p-4" style={{ background: 'rgba(244,248,246,0.9)', borderColor: 'rgba(12,29,22,0.08)' }}>
+                    ['Brief claro', 'Usa un beneficio concreto, no una descripción genérica.'],
+                    ['Imagen de referencia', 'Sube una imagen y la IA creará visuales en el mismo estilo o complementarios.'],
+                    ['Estilo visual', 'Selecciona un preset de estilo o deja que Claude decida según el contexto del proyecto.'],
+                  ].map(([title, text]) => (
+                    <div
+                      key={title}
+                      className="rounded-2xl border p-4"
+                      style={{ background: 'rgba(244,248,246,0.9)', borderColor: 'rgba(12,29,22,0.08)' }}
+                    >
+                      <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--text)' }}>{title}</p>
                       <p className="text-sm leading-6" style={{ color: 'var(--text-body)' }}>{text}</p>
                     </div>
                   ))}
@@ -374,16 +480,40 @@ function GenerateContent() {
               </div>
             ) : (
               <>
-                <div className="rounded-[28px] border p-5" style={{ background: 'rgba(255,255,255,0.84)', borderColor: 'rgba(12,29,22,0.08)' }}>
-                  <p className="text-[11px] uppercase tracking-[0.18em] mb-1" style={{ color: 'var(--text-faint)' }}>Resultado</p>
-                  <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text)' }}>
-                    {posts.length} pieza{posts.length !== 1 ? 's' : ''} generada{posts.length !== 1 ? 's' : ''} para revisión
-                  </h2>
+                <div
+                  className="rounded-[28px] border p-5"
+                  style={{ background: 'rgba(255,255,255,0.84)', borderColor: 'rgba(12,29,22,0.08)' }}
+                >
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.18em] mb-1" style={{ color: 'var(--text-faint)' }}>Resultado</p>
+                      <h2 className="text-xl font-bold" style={{ color: 'var(--text)' }}>
+                        {posts.length} pieza{posts.length !== 1 ? 's' : ''} lista{posts.length !== 1 ? 's' : ''} para revisión
+                      </h2>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: 'rgba(0,184,144,0.10)', color: 'var(--accent)' }}>
+                        {networks.length} redes
+                      </span>
+                      <span className="rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: 'rgba(12,29,22,0.06)', color: 'var(--text-body)' }}>
+                        {contentTypes.length} formato{contentTypes.length !== 1 ? 's' : ''}
+                      </span>
+                      {referenceImage && (
+                        <span className="rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: 'rgba(92,53,204,0.08)', color: 'var(--violet)' }}>
+                          Con referencia visual
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
                   {warnings.length > 0 && (
-                    <div className="mt-4 rounded-2xl border p-4" style={{ background: 'rgba(200,124,0,0.06)', borderColor: 'rgba(200,124,0,0.22)' }}>
-                      <p className="font-semibold mb-2" style={{ color: 'var(--amber)' }}>Incidencias detectadas</p>
+                    <div
+                      className="mt-4 rounded-2xl border p-4"
+                      style={{ background: 'rgba(200,124,0,0.06)', borderColor: 'rgba(200,124,0,0.22)' }}
+                    >
+                      <p className="font-semibold mb-2 text-sm" style={{ color: 'var(--amber)' }}>Incidencias detectadas</p>
                       <ul className="space-y-1 text-sm" style={{ color: 'var(--text-body)' }}>
-                        {warnings.map((warning, index) => <li key={`${warning}-${index}`}>• {warning}</li>)}
+                        {warnings.map((w, i) => <li key={`${w}-${i}`}>• {w}</li>)}
                       </ul>
                     </div>
                   )}
@@ -428,20 +558,26 @@ function GenerateContent() {
                                 <video src={post.videoUrl} controls className="w-full rounded-[22px] aspect-video bg-black" />
                               ) : post.contentType === 'CAROUSEL' && post.mediaUrls?.length > 0 ? (
                                 <div className="grid grid-cols-2 gap-2">
-                                  {post.mediaUrls.slice(0, 4).map((url, index) => (
-                                    <div key={`${url}-${index}`} className="rounded-[18px] overflow-hidden aspect-square" style={{ background: 'rgba(12,29,22,0.06)' }}>
+                                  {post.mediaUrls.slice(0, 4).map((url, idx) => (
+                                    <div key={`${url}-${idx}`} className="rounded-[18px] overflow-hidden aspect-square" style={{ background: 'rgba(12,29,22,0.06)' }}>
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img src={url} alt={`${post.title} ${index + 1}`} className="w-full h-full object-cover" />
+                                      <img src={url} alt={`${post.title} ${idx + 1}`} className="w-full h-full object-cover" />
                                     </div>
                                   ))}
                                 </div>
                               ) : post.imageUrl ? (
-                                <div className={`rounded-[24px] overflow-hidden ${post.contentType === 'STORY' ? 'aspect-[9/16] max-h-[420px]' : 'aspect-square'}`} style={{ background: 'rgba(12,29,22,0.06)' }}>
+                                <div
+                                  className={`rounded-[24px] overflow-hidden ${post.contentType === 'STORY' ? 'aspect-[9/16] max-h-[420px]' : 'aspect-square'}`}
+                                  style={{ background: 'rgba(12,29,22,0.06)' }}
+                                >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={post.imageUrl} alt={post.title} className="w-full h-full object-cover" />
                                 </div>
                               ) : (
-                                <div className="rounded-[24px] aspect-square flex items-center justify-center text-sm" style={{ background: 'rgba(12,29,22,0.05)', color: 'var(--text-faint)' }}>
+                                <div
+                                  className="rounded-[24px] aspect-square flex items-center justify-center text-sm"
+                                  style={{ background: 'rgba(12,29,22,0.05)', color: 'var(--text-faint)' }}
+                                >
                                   Sin recurso visual
                                 </div>
                               )}
@@ -450,7 +586,10 @@ function GenerateContent() {
                             <div className="space-y-4">
                               <div>
                                 <p className="text-[11px] uppercase tracking-[0.16em] mb-1.5" style={{ color: 'var(--text-faint)' }}>Título</p>
-                                <h3 className="text-xl font-bold leading-tight" style={{ color: 'var(--text)', fontFamily: 'Bricolage Grotesque, sans-serif', letterSpacing: '-0.03em' }}>
+                                <h3
+                                  className="text-xl font-bold leading-tight"
+                                  style={{ color: 'var(--text)', fontFamily: 'Bricolage Grotesque, sans-serif', letterSpacing: '-0.03em' }}
+                                >
                                   {post.title}
                                 </h3>
                               </div>
@@ -463,7 +602,11 @@ function GenerateContent() {
                                   <p className="text-[11px] uppercase tracking-[0.16em] mb-2" style={{ color: 'var(--text-faint)' }}>Hashtags</p>
                                   <div className="flex flex-wrap gap-2">
                                     {post.hashtags.map(tag => (
-                                      <span key={tag} className="rounded-full px-2.5 py-1 text-xs font-medium" style={{ background: 'rgba(0,184,144,0.10)', color: 'var(--accent)' }}>
+                                      <span
+                                        key={tag}
+                                        className="rounded-full px-2.5 py-1 text-xs font-medium"
+                                        style={{ background: 'rgba(0,184,144,0.10)', color: 'var(--accent)' }}
+                                      >
                                         #{tag}
                                       </span>
                                     ))}
@@ -474,28 +617,45 @@ function GenerateContent() {
                           </div>
                         </div>
 
-                        <div className="border-t lg:border-t-0 lg:border-l p-5 sm:p-6 space-y-4" style={{ borderColor: 'rgba(12,29,22,0.08)', background: 'rgba(255,255,255,0.62)' }}>
+                        <div
+                          className="border-t lg:border-t-0 lg:border-l p-5 sm:p-6 space-y-4"
+                          style={{ borderColor: 'rgba(12,29,22,0.08)', background: 'rgba(255,255,255,0.62)' }}
+                        >
                           <div>
                             <p className="text-[11px] uppercase tracking-[0.16em] mb-2" style={{ color: 'var(--text-faint)' }}>CTA</p>
-                            <div className="rounded-2xl px-4 py-3 text-sm font-semibold" style={{ background: 'rgba(12,29,22,0.05)', color: 'var(--text)' }}>
+                            <div
+                              className="rounded-2xl px-4 py-3 text-sm font-semibold"
+                              style={{ background: 'rgba(12,29,22,0.05)', color: 'var(--text)' }}
+                            >
                               {post.cta || 'Sin CTA definido'}
                             </div>
                           </div>
 
-                          <div className="rounded-2xl border p-4 text-sm leading-6" style={{ background: 'rgba(255,255,255,0.72)', borderColor: 'rgba(12,29,22,0.08)', color: 'var(--text-body)' }}>
+                          <div
+                            className="rounded-2xl border p-4 text-sm leading-6"
+                            style={{ background: 'rgba(255,255,255,0.72)', borderColor: 'rgba(12,29,22,0.08)', color: 'var(--text-body)' }}
+                          >
                             <p className="font-semibold mb-1.5" style={{ color: 'var(--text)' }}>{post.title}</p>
                             <p>{post.description}</p>
-                            {post.hashtags.length > 0 && <p className="mt-3" style={{ color: 'var(--accent)' }}>{hashtagText(post.hashtags)}</p>}
+                            {post.hashtags.length > 0 && (
+                              <p className="mt-3" style={{ color: 'var(--accent)' }}>{hashtagText(post.hashtags)}</p>
+                            )}
                           </div>
 
                           {post.tip && (
-                            <div className="rounded-2xl border px-4 py-3 text-sm" style={{ background: 'rgba(92,53,204,0.06)', borderColor: 'rgba(92,53,204,0.16)', color: 'var(--text-body)' }}>
+                            <div
+                              className="rounded-2xl border px-4 py-3 text-sm"
+                              style={{ background: 'rgba(92,53,204,0.06)', borderColor: 'rgba(92,53,204,0.16)', color: 'var(--text-body)' }}
+                            >
                               <span style={{ color: 'var(--violet)', fontWeight: 700 }}>Tip:</span> {post.tip}
                             </div>
                           )}
 
                           {errors[post.id] && (
-                            <div className="rounded-2xl border px-4 py-3 text-sm flex items-start gap-2" style={{ background: 'rgba(217,64,64,0.07)', borderColor: 'rgba(217,64,64,0.20)', color: 'var(--text-body)' }}>
+                            <div
+                              className="rounded-2xl border px-4 py-3 text-sm flex items-start gap-2"
+                              style={{ background: 'rgba(217,64,64,0.07)', borderColor: 'rgba(217,64,64,0.20)', color: 'var(--text-body)' }}
+                            >
                               <XCircle className="w-4 h-4 mt-0.5" style={{ color: 'var(--coral)' }} />
                               <span>{errors[post.id]}</span>
                             </div>
@@ -508,7 +668,10 @@ function GenerateContent() {
                               className="w-full rounded-2xl px-4 py-3.5 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                               style={{ background: networkColor, color: '#fff' }}
                             >
-                              {publishing[post.id] ? <><Loader2 className="w-4 h-4 animate-spin" />Publicando...</> : <><Send className="w-4 h-4" />Publicar en {getNetworkLabel(post.network)}</>}
+                              {publishing[post.id]
+                                ? <><Loader2 className="w-4 h-4 animate-spin" />Publicando...</>
+                                : <><Send className="w-4 h-4" />Publicar en {getNetworkLabel(post.network)}</>
+                              }
                             </button>
                           )}
                         </div>
@@ -518,8 +681,7 @@ function GenerateContent() {
                 })}
               </>
             )}
-          </section>
-        </div>
+        </section>
       </div>
     </div>
   )
