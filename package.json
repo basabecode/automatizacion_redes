@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:windows": "powershell -ExecutionPolicy Bypass -File scripts/dev-windows.ps1",
+    "desktop:shortcut": "powershell -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

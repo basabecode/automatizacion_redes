@@ -54,99 +54,12 @@ Read .agents/skills/social-content/SKILL.md
 
 Yetzar Content Studio (package name: `content-forge`) is a local social media automation platform. It generates AI-powered content (text + images/videos) using Claude and fal.ai, then publishes to Facebook, Instagram, and TikTok. Designed for multi-project management — each project has its own brand identity, linked social accounts, and content history.
 
-## Development Commands
+## Source Of Truth
 
-```bash
-pnpm dev            # Start Next.js dev server (localhost:3000)
-pnpm build          # Production build
-pnpm lint           # Run ESLint
-
-pnpm db:migrate     # Run Prisma migrations
-pnpm db:seed        # Seed DB with sample data
-pnpm db:studio      # Open Prisma Studio (localhost:5555)
-pnpm db:reset       # Reset DB and reseed (destructive)
-```
-
-### Infrastructure
-
-The app requires PostgreSQL via Docker:
-
-```bash
-docker-compose up -d    # Start all services
-docker-compose down     # Stop containers
-```
-
-Docker containers: `content-forge-app` (port 3000), `yetzar-db` (port 5433), `yetzar-pgadmin` (port 8081).
-
-### Environment Setup
-
-Copy `.env.local` and fill in:
-
-- `DATABASE_URL` — PostgreSQL connection string
-- `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`
-- `ANTHROPIC_API_KEY` — Claude 3.5 Sonnet
-- `FAL_KEY` — fal.ai (image/video generation)
-- `META_APP_ID`, `META_APP_SECRET` — Facebook/Instagram OAuth
-- `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` — TikTok OAuth
-
-## Architecture
-
-### Data Model
-
-**Core flow:** `Project` → `Post` → `PublishLog`
-
-- **Project**: Brand entity with tone, audience, industry. Has many `SocialAccount`s and `Post`s.
-- **SocialAccount**: Per-network OAuth credentials (encrypted), linked to one Project. Unique per `(projectId, network)`.
-- **Post**: Generated content with status lifecycle: `DRAFT → GENERATING → READY → PUBLISHING → PUBLISHED / FAILED`. Stores text fields (title, description, hashtags, CTA), media URLs, and which `SocialAccount` it was published to.
-- **PublishLog**: Append-only log of each publish attempt with full API response/error JSON.
-
-Enums: `Network` (FACEBOOK, INSTAGRAM, TIKTOK), `ContentType` (IMAGE, VIDEO, CAROUSEL, STORY), `PostStatus`.
-
-### Service Layer (`lib/services/`)
-
-Business logic is isolated in four services:
-
-| Service              | Responsibility                                                                                           |
-| -------------------- | -------------------------------------------------------------------------------------------------------- |
-| `content.service.ts` | Calls Claude 3.5 Sonnet to write network-specific copy (title, description, hashtags, CTA, image prompt) |
-| `image.service.ts`   | Calls fal.ai FLUX to generate images in platform-correct sizes                                           |
-| `video.service.ts`   | Calls fal.ai Kling for image-to-video (preferred) or text-to-video at 9:16 for TikTok                    |
-| `publish.service.ts` | Calls Meta Graph API v21.0 and TikTok API to publish; handles Instagram carousel logic                   |
-
-### API Routes (`app/api/`)
-
-| Route                              | Purpose                                                             |
-| ---------------------------------- | ------------------------------------------------------------------- |
-| `POST /api/generate`               | Orchestrates content + image/video generation for selected networks |
-| `POST /api/publish`                | Publishes a ready post to its target social platform                |
-| `GET/POST /api/posts`              | List (filterable by projectId, status, network) or create posts     |
-| `GET/PUT/DELETE /api/posts/[id]`   | Single post operations                                              |
-| `GET/POST /api/projects`           | List active projects or create one                                  |
-| `PATCH/DELETE /api/projects/[id]`  | Edit project fields or soft-delete (sets `active: false`)           |
-| `GET/POST /api/accounts`           | Manage OAuth-linked social accounts                                 |
-| `/api/auth/[...nextauth]`          | NextAuth v5 handler (credentials provider)                          |
-
-### Auth & Security
-
-- `middleware.ts` — protects all routes under `/(dashboard)`, redirects unauthenticated users to `/login`
-- `lib/encrypt.ts` — AES encryption for storing social media access tokens in the DB
-- `lib/auth.options.ts` — NextAuth config with credentials provider using `ADMIN_EMAIL`/`ADMIN_PASSWORD`
-- `app/session-provider.tsx` — wraps the app in `SessionProvider` for client-side session access
-
-### Frontend (`app/(dashboard)/dashboard/`)
-
-Route group with shared sidebar layout. All pages live under `/dashboard/`:
-
-| Route | Description |
-| ----- | ----------- |
-| `/dashboard` | Home — content strategy widgets (hook formulas, content pillars), project list with post counts |
-| `/dashboard/generate` | Content generator — select project/topic/networks/type, previews IMAGE/VIDEO/CAROUSEL/STORY |
-| `/dashboard/posts` | Post history — filter by project/status/network, publish/delete actions |
-| `/dashboard/projects` | Project manager — create, edit, soft-delete projects |
-| `/dashboard/settings` | API Keys configuration |
-| `/dashboard/settings/accounts` | Social account management (Facebook, Instagram, TikTok OAuth tokens) |
-
-Uses Tailwind CSS + Lucide icons. Brand identity: **Yetzar Content Studio** — green accent palette (`#9AF5E4`, `#00C8A0`, `#062014`). No component library — UI is built inline with Tailwind and CSS custom properties.
+- Operación general y arranque: [README.md](C:/Users/Usuario/Desktop/automatizacion/README.md)
+- Arquitectura, estructura, servicios y modelo de datos: [docs/arquitectura.md](C:/Users/Usuario/Desktop/automatizacion/docs/arquitectura.md)
+- Credenciales y configuración externa: [docs/credenciales.md](C:/Users/Usuario/Desktop/automatizacion/docs/credenciales.md)
+- Scripts y comandos oficiales: [package.json](C:/Users/Usuario/Desktop/automatizacion/package.json)
 
 ### Directrices de diseño — OBLIGATORIAS
 
@@ -173,3 +86,25 @@ Uses Tailwind CSS + Lucide icons. Brand identity: **Yetzar Content Studio** — 
 - Inspirarse en diseño editorial, no en templates de landing page
 - Preferir geometría abstracta sobre iconos literales
 - CSS custom properties para colores, no valores hardcodeados.
+
+## Reglas operativas nuevas
+
+### Arranque local
+
+- No romper el flujo `pnpm dev:windows` salvo que el usuario pida cambiarlo explícitamente.
+- Mantener compatibilidad con el lanzador [scripts/dev-windows.ps1](C:/Users/Usuario/Desktop/automatizacion/scripts/dev-windows.ps1), el lanzador limpio [scripts/dev-windows-launcher.ps1](C:/Users/Usuario/Desktop/automatizacion/scripts/dev-windows-launcher.ps1) y [Abrir Yetzar Studio.vbs](C:/Users/Usuario/Desktop/automatizacion/Abrir%20Yetzar%20Studio.vbs).
+- Recordar que el flujo actual esperado es: Docker solo para PostgreSQL, Next.js fuera del contenedor.
+
+### UX del lanzador de escritorio
+
+- Si se modifica el flujo de inicio, preservar en lo posible estas propiedades:
+- inicio con un solo clic desde escritorio
+- consola oculta o minimizada
+- apertura automática del navegador cuando la app responda
+- icono propio del proyecto
+
+### Documentación
+
+- Cada cambio operativo relevante debe actualizar `README.md`.
+- Cada cambio técnico estructural debe actualizar `docs/arquitectura.md`.
+- Los comandos no deben duplicarse aquí si ya existen en `package.json`; referenciar el archivo fuente.

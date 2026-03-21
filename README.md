@@ -1,125 +1,119 @@
-# Yetzar Content Studio — Generador de contenido social con IA
+# Yetzar Content Studio
 
-Herramienta local multi-proyecto para generar y publicar contenido en Facebook, Instagram y TikTok usando Claude AI + fal.ai.
+Aplicación local para generar y publicar contenido social multi-proyecto con IA en Facebook, Instagram y TikTok.
+
+## Estado actual
+
+- La app corre localmente en `http://localhost:3000`.
+- La base de datos actual es `PostgreSQL 16` en Docker, expuesta en `localhost:5433`.
+- En Windows ya existe un flujo de arranque de un clic con icono propio, consola minimizada y hot reload.
+
+## Stack tecnológico
+
+- `Next.js 15`
+- `React 19`
+- `TypeScript 5`
+- `Tailwind CSS 3`
+- `NextAuth 5 beta`
+- `Prisma 5`
+- `PostgreSQL 16`
+- `Docker Desktop`
+- `Anthropic SDK`
+- `fal.ai`
+- `pnpm`
+
+Detalle técnico completo en [docs/arquitectura.md](C:/Users/Usuario/Desktop/automatizacion/docs/arquitectura.md).
 
 ## Requisitos
 
-- Docker Desktop instalado y corriendo
-- Node.js 20+ (solo para `pnpm install` inicial)
+- `Node.js 20+`
+- `pnpm`
+- `Docker Desktop`
 
-## Instalación (primera vez)
-
-Abre PowerShell o Terminal en la carpeta del proyecto:
+## Configuración inicial
 
 ```powershell
-# 1. Instalar dependencias
+cd C:\Users\Usuario\Desktop\automatizacion
 pnpm install
-
-# 2. Editar .env.local con tus API keys (ver abajo)
-
-# 3. Levantar con Docker
-docker-compose up --build
 ```
 
-Abre el navegador en: **http://localhost:3000**
-Inicia sesión con el `ADMIN_EMAIL` y `ADMIN_PASSWORD` que configuraste en `.env.local`.
+Configura `.env` o `.env.local` con al menos:
 
-## Configurar API Keys
+- `DATABASE_URL`
+- `NEXTAUTH_SECRET`
+- `NEXTAUTH_URL`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
+- `ANTHROPIC_API_KEY`
+- `FAL_KEY`
+- `META_APP_ID`
+- `META_APP_SECRET`
+- `TIKTOK_CLIENT_KEY`
+- `TIKTOK_CLIENT_SECRET`
 
-Edita `.env.local` con tus claves:
+Credenciales y contexto adicional en [docs/credenciales.md](C:/Users/Usuario/Desktop/automatizacion/docs/credenciales.md).
 
-| Variable | Dónde obtenerla |
-|---|---|
-| `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys |
-| `FAL_KEY` | fal.ai/dashboard/keys |
-| `META_APP_ID` + `META_APP_SECRET` | developers.facebook.com/apps |
-| `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET` | developers.tiktok.com |
+## Cómo iniciar
 
-Ver `docs/credenciales.md` para instrucciones detalladas por plataforma.
-
-## Comandos útiles
+### Desde terminal
 
 ```powershell
-# Levantar el proyecto
-docker-compose up
-
-# Levantar en background
-docker-compose up -d
-
-# Ver logs de la app
-docker-compose logs -f app
-
-# Parar todo
-docker-compose down
-
-# Reiniciar solo la app (tras cambiar .env)
-docker-compose restart app
-
-# Abrir pgAdmin en el navegador
-# http://localhost:8081  (credenciales en .env.local: PGADMIN_EMAIL / PGADMIN_PASSWORD)
-
-# Seed de proyectos de ejemplo (si la DB está vacía)
-docker-compose exec app pnpm db:seed
-
-# Abrir Prisma Studio
-docker-compose exec app pnpm db:studio
+pnpm dev:windows
 ```
 
-## Contenedores Docker
+### Desde archivo local
 
-| Contenedor | Puerto externo | Descripción |
-|---|---|---|
-| `content-forge-app` | 3000 | Aplicación Next.js |
-| `yetzar-db` | 5433 | PostgreSQL 16 |
-| `yetzar-pgadmin` | 8081 | pgAdmin 4 |
+Abre:
 
-## Agregar un nuevo proyecto
+- [Iniciar Desarrollo.cmd](C:/Users/Usuario/Desktop/automatizacion/Iniciar%20Desarrollo.cmd)
+- o [Abrir Yetzar Studio.vbs](C:/Users/Usuario/Desktop/automatizacion/Abrir%20Yetzar%20Studio.vbs)
 
-1. Ve a **Proyectos → Nuevo proyecto** en la UI
-2. Configura nombre, industria, tono y audiencia
-3. Vincula cuentas sociales en **Configuración → Cuentas sociales**
+Ese flujo:
 
-## Estructura del proyecto
+- inicia Docker Desktop si hace falta
+- levanta `yetzar-db`
+- arranca la app en desarrollo
+- abre `http://localhost:3000`
+- deja la consola minimizada lo más posible
 
-```
-content-forge/
-├── app/
-│   ├── (dashboard)/
-│   │   └── dashboard/          ← UI principal (todas las páginas)
-│   │       ├── page.tsx        ← Inicio con ideas de contenido y pilares
-│   │       ├── generate/       ← Generador de posts con IA
-│   │       ├── posts/          ← Historial y gestión de posts
-│   │       ├── projects/       ← Gestión de proyectos (crear/editar/eliminar)
-│   │       └── settings/
-│   │           ├── page.tsx    ← API Keys y configuración
-│   │           └── accounts/   ← Cuentas sociales vinculadas
-│   ├── api/                    ← Route Handlers
-│   │   ├── generate/           ← POST: generación de contenido
-│   │   ├── publish/            ← POST: publicación en redes
-│   │   ├── posts/[id]/         ← GET/PUT/DELETE post individual
-│   │   ├── projects/[id]/      ← PATCH/DELETE proyecto individual
-│   │   ├── accounts/           ← GET/POST cuentas sociales
-│   │   └── auth/               ← NextAuth handler
-│   └── login/                  ← Página de inicio de sesión
-├── lib/
-│   ├── services/               ← content, image, video, publish
-│   ├── auth.options.ts         ← Config NextAuth (credentials provider)
-│   └── encrypt.ts              ← AES-256-GCM para tokens sociales
-├── prisma/
-│   ├── schema.prisma           ← Project, Post, SocialAccount, PublishLog
-│   └── seed.ts                 ← 3 proyectos de ejemplo
-├── middleware.ts                ← Protege rutas /dashboard/*
-├── docker-compose.yml
-├── Dockerfile
-└── .env.local                  ← API keys (no subir a git)
+## Acceso directo con icono
+
+Para crear el acceso directo del escritorio:
+
+```powershell
+pnpm desktop:shortcut
 ```
 
-## Flujo de uso
+Eso crea `Yetzar Studio.lnk` en el escritorio usando el icono del proyecto.
 
-1. Inicia sesión en `/login`
-2. En **Proyectos**, crea o selecciona tu proyecto de marca
-3. Ve a **Generar** — escribe el tema, elige redes y tipo de contenido
-4. Claude genera el copy (título, descripción, hashtags, CTA), fal.ai genera la imagen/video
-5. Previsualiza el resultado: imagen normal, 9:16 para stories/TikTok, carrusel scrollable
-6. Clic en **Publicar** → va directo a las APIs de Meta y TikTok
-7. Revisa el historial completo en **Posts**
+## Cambios desde el IDE
+
+Mientras la app esté abierta con el flujo anterior:
+
+- los cambios normales del proyecto se reflejan automáticamente
+- no necesitas reiniciar por cambios de frontend o lógica habitual
+- si cambias variables de entorno o Prisma, puede hacer falta reiniciar
+
+## Scripts
+
+Los scripts disponibles viven en [package.json](C:/Users/Usuario/Desktop/automatizacion/package.json).
+
+Los más usados son:
+
+```powershell
+pnpm dev
+pnpm dev:windows
+pnpm desktop:shortcut
+pnpm build
+pnpm lint
+```
+
+## Documentación
+
+- Operación general: [README.md](C:/Users/Usuario/Desktop/automatizacion/README.md)
+- Arquitectura y detalle técnico: [docs/arquitectura.md](C:/Users/Usuario/Desktop/automatizacion/docs/arquitectura.md)
+- Credenciales: [docs/credenciales.md](C:/Users/Usuario/Desktop/automatizacion/docs/credenciales.md)
+
+## Evolución sugerida
+
+Si luego quieres eliminar Docker por completo, el siguiente paso sería migrar de PostgreSQL a SQLite local y evaluar empaquetado con `Tauri` o `Electron`.
